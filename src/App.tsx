@@ -1576,9 +1576,7 @@ export default function App() {
               <span className={`text-base font-black tracking-tight group-hover:text-indigo-600 transition-colors ${
                 isDarkMode ? 'text-white' : 'text-slate-900'
               }`}>NOVA</span>
-              <span className={`text-[8px] font-bold block mt-0.5 tracking-wider font-mono ${
-                isDarkMode ? 'text-indigo-400' : 'text-indigo-500'
-              }`}>VISION LABS</span>
+              {/* subtitle intentionally removed to show only brand name */}
             </div>
           </div>
 

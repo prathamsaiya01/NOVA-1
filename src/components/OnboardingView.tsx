@@ -269,7 +269,7 @@ export const OnboardingView: React.FC<OnboardingProps> = ({ onComplete }) => {
           </div>
           <div className="leading-none text-left">
             <span className="text-sm font-black tracking-tight text-slate-900 block">NOVA</span>
-            <span className="text-[7px] font-extrabold text-indigo-500 block mt-0.5 tracking-wider font-mono">VISION LABS</span>
+            {/* subtitle removed to display only NOVA */}
           </div>
         </div>
 

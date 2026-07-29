@@ -189,7 +189,7 @@ Ask me anything—I'm ready to craft suggestions!`,
           onChange={(e) => setInputVal(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') handleSend(inputVal); }}
           placeholder="Ask about style matches, items, colors..."
-          className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-indigo-600"
+          className="flex-1 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 placeholder:text-slate-800 focus:outline-none focus:border-indigo-600"
           disabled={sending}
         />
         <button 
