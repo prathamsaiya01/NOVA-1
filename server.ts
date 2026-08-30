@@ -34,8 +34,12 @@ async function start() {
    // Create Vite server for development
 // Allow overriding Vite HMR/WebSocket port via env to avoid conflicts
 const hmrPort = Number(process.env.VITE_WS_PORT || process.env.HMR_PORT || 24679);
-const vite = await createViteServer({ 
-  server: { middlewareMode: true, hmr: { port: hmrPort } } 
+const vite = await createViteServer({
+  server: {
+    middlewareMode: true,
+    allowedHosts: ['nova-1-1.onrender.com'],
+    hmr: false
+  }
 });
 
 // Use Vite's connect instance as middleware 
