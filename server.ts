@@ -31,15 +31,20 @@ async function start() {
     app.use('/api', analysisRouter);
     app.use('/api', productRouter);
 
-    // Create Vite server for development
-    // Allow overriding Vite HMR/WebSocket port via env to avoid conflicts
-    const hmrPort = Number(process.env.VITE_WS_PORT || process.env.HMR_PORT || 24679);
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: { port: hmrPort } }
-    });
+   // Create Vite server for development
+// Allow overriding Vite HMR/WebSocket port via env to avoid conflicts
+const hmrPort = Number(process.env.VITE_WS_PORT || process.env.HMR_PORT || 24679);
+const vite = await createViteServer({ 
+  server: { middlewareMode: true, hmr: { port: hmrPort } } 
+});
 
-    // Use Vite's connect instance as middleware
-    app.use(vite.middlewares);
+// Use Vite's connect instance as middleware 
+app.use(vite.middlewares);
+
+// Fallback to index.html for SPA 
+app.get('/', (req, res) => { 
+  res.sendFile(path.resolve(__dirname, 'index.html')); 
+});
 
     // Fallback to index.html for SPA
     app.get('/', (req, res) => {
@@ -57,3 +62,32 @@ async function start() {
 }
 
 start();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

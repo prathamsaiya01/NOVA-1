@@ -8,7 +8,7 @@ import { getAuth } from "firebase-admin/auth";
 import "./firebaseAdmin";
 
 console.log("=== AUTH ROUTER ENV ===");
-console.log("BREVO_API_KEY:", process.env.BREVO_API_KEY);
+console.log("BREVO_API_KEY loaded:", Boolean(process.env.BREVO_API_KEY));
 console.log("BREVO_SENDER_EMAIL:", process.env.BREVO_SENDER_EMAIL);
 console.log("=======================");
 
@@ -79,7 +79,9 @@ const generateOTP = () => {
 
 const hashOTP = (otp: string) => crypto.createHash('sha256').update(otp).digest('hex');
 
-const isValidEmail = (email?: string) => typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+const isValidEmail = (email?: string) =>
+  typeof email === 'string' &&
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 // send email via Brevo SDK (or log in dev mode)
 const sendOTPEmail = async (email: string, otp: string): Promise<{ ok: boolean; status?: number; error?: string }> => {

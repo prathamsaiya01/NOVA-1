@@ -128,8 +128,8 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, onGuestConti
   };
 
   const isValidPhoneNumber = (value: string) => {
-    return /^\+[1-9]\d{9,14}$/.test(value);
-  };
+  return /^\+[1-9]\d{9,14}$/.test(value);
+};
 
   const resetAlerts = () => {
     setError(null);
@@ -275,7 +275,7 @@ export const AuthView: React.FC<AuthViewProps> = ({ onLoginSuccess, onGuestConti
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       setError('Please provide a valid email address.');
       return;
     }
