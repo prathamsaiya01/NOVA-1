@@ -1,5 +1,5 @@
 const getApiBaseUrl = () => {
-  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env || {};
+  const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env || {};
   return (env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 };
 

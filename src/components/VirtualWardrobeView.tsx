@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { ScreenId, WardrobeDetectedAttributes, WardrobeGender, WardrobeItem, WardrobeProfile, WardrobeScanMethod, WardrobeSize } from '../types';
 import accountService from '../services/accountService';
 import aiService from "../services/aiService";
+import { findSimilarProductsByVector, ProductMatch } from "../services/productMetadataService";
 
 interface VirtualWardrobeViewProps {
   onNavigate: (screen: ScreenId) => void;
@@ -89,68 +90,7 @@ const colorHex: Record<string, string> = {
   Lilac: '#a78bfa'
 };
 
-const processingSteps = ['Detecting Pattern', 'Detecting Colors', 'Detecting Fabric', 'Generating Garment', 'Complete'];
-
-const analyzeScan = (category: string, gender: WardrobeGender, method: WardrobeScanMethod): WardrobeDetectedAttributes => {
-  const isBottom = ['Jeans', 'Trousers', 'Shorts', 'Leggings', 'Palazzo'].includes(category);
-  const isOuter = ['Hoodie', 'Sweatshirt', 'Jacket', 'Blazer'].includes(category);
-  const isTraditional = ['Kurti', 'Saree', 'Ethnic Wear'].includes(category);
-  const primaryColor = isBottom ? 'Charcoal' : isTraditional ? 'Blue' : isOuter ? 'Lilac' : gender === 'Female' ? 'Rose' : 'Blue';
-  const secondaryColor = isTraditional ? 'Mint' : method === 'Upload Photo' ? 'Ivory' : 'Sand';
-  return {
-    primaryColor,
-    secondaryColor,
-    pattern: isBottom ? 'Solid twill' : isTraditional ? 'Floral embroidery' : method === 'Upload Photo' ? 'Micro print' : 'Abstract floral',
-    fabric: isBottom ? 'Denim blend' : isOuter ? 'Fleece knit' : isTraditional ? 'Cotton silk' : 'Cotton',
-    style: isTraditional ? 'Contemporary ethnic' : isOuter ? 'Street casual' : 'Smart casual',
-    sleeveType: isBottom || category === 'Saree' ? 'Not applicable' : category === 'T-Shirt' || category === 'Polo' ? 'Short Sleeve' : '3/4 Sleeve',
-    neckType: isBottom ? 'Not applicable' : category === 'Shirt' || category === 'Blazer' ? 'Collared' : category === 'Hoodie' ? 'Hooded' : 'Round'
-  };
-};
-
-const generateGarmentImage = (category: string, attributes: WardrobeDetectedAttributes) => {
-  const primary = colorHex[attributes.primaryColor] || '#4f46e5';
-  const secondary = colorHex[attributes.secondaryColor] || '#f8fafc';
-  const isBottom = ['Jeans', 'Trousers', 'Shorts', 'Leggings', 'Palazzo'].includes(category);
-  const isDress = ['Kurti', 'Dress', 'Saree', 'Ethnic Wear'].includes(category);
-  const isOuter = ['Hoodie', 'Sweatshirt', 'Jacket', 'Blazer'].includes(category);
-  const isShirt = ['Shirt', 'T-Shirt', 'Polo', 'Crop Top'].includes(category);
-  const bodyPath = isBottom
-    ? '<path d="M120 72h80l23 282c-18 8-39 9-61 3l-3-171-10 171c-20 6-42 5-61-3L120 72Z"/>'
-    : isDress
-      ? '<path d="M138 64c24 12 54 12 78 0l18 48 54 244c-56 26-153 27-216 0l54-244 12-48Z"/><path d="M126 86 72 144l35 45 27-24M230 86l58 58-35 45-30-24"/>'
-      : isOuter
-        ? '<path d="M124 76h112l48 55-38 58-18-26v190c-48 18-94 18-140 0V163l-18 26-38-58 48-55Z"/>'
-        : '<path d="M124 78h112l48 48-35 54-21-25v178c-44 17-91 17-140 0V155l-21 25-35-54 48-48Z"/>';
-  const collar = isBottom
-    ? '<path d="M122 78h76" stroke="#fff" stroke-opacity=".55" stroke-width="7" stroke-linecap="round"/>'
-    : isOuter
-      ? '<path d="M154 76c14 28 43 28 58 0l16 30c-30 19-61 19-90 0Z" fill="#0f1020" opacity=".38"/><path d="M180 92v252" stroke="#f8fafc" stroke-opacity=".35" stroke-width="4"/>'
-      : isShirt
-        ? '<path d="M150 78 180 116l30-38" fill="none" stroke="#fff" stroke-opacity=".72" stroke-width="8" stroke-linejoin="round"/>'
-        : '<path d="M154 72c8 24 44 24 54 0" fill="none" stroke="#fff" stroke-opacity=".72" stroke-width="8" stroke-linecap="round"/>';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 420">
-    <defs>
-      <linearGradient id="cloth" x1="0" x2="1" y1="0" y2="1"><stop stop-color="${primary}"/><stop offset=".55" stop-color="${secondary}"/><stop offset="1" stop-color="${primary}"/></linearGradient>
-      <radialGradient id="shine" cx="34%" cy="16%" r="80%"><stop stop-color="#fff" stop-opacity=".46"/><stop offset=".5" stop-color="#fff" stop-opacity=".06"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></radialGradient>
-      <pattern id="print" width="42" height="42" patternUnits="userSpaceOnUse"><circle cx="13" cy="14" r="5" fill="#fff" opacity=".66"/><path d="M13 3c9 7 9 16 0 22C4 19 4 10 13 3ZM3 14c7-9 16-9 22 0-6 9-15 9-22 0Z" fill="#fff" opacity=".32"/><path d="M27 27c13-9 22 5 9 11-8 4-18-1-9-11Z" fill="#111827" opacity=".18"/></pattern>
-      <filter id="shadow" x="-35%" y="-35%" width="170%" height="180%"><feDropShadow dx="0" dy="24" stdDeviation="18" flood-color="#000000" flood-opacity=".34"/><feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#a855f7" flood-opacity=".24"/></filter>
-      <filter id="texture"><feTurbulence type="fractalNoise" baseFrequency=".55" numOctaves="3"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="table" tableValues="0 .09"/></feComponentTransfer></filter>
-    </defs>
-    <rect width="360" height="420" fill="transparent"/>
-    <ellipse cx="180" cy="382" rx="118" ry="22" fill="#000" opacity=".24"/>
-    <g filter="url(#shadow)" transform="translate(0 4)">
-      <g fill="url(#cloth)">${bodyPath}</g>
-      <g fill="url(#print)" opacity="${attributes.pattern.toLowerCase().includes('solid') ? '.12' : '.72'}">${bodyPath}</g>
-      <g fill="url(#shine)">${bodyPath}</g>
-      <g filter="url(#texture)">${bodyPath}</g>
-      ${collar}
-      <path d="M116 112c38 13 91 13 128 0" stroke="#fff" stroke-width="2" opacity=".28" fill="none"/>
-      <path d="M104 344c47 18 105 18 153 0" stroke="#fff" stroke-width="3" opacity=".25" fill="none"/>
-    </g>
-  </svg>`;
-  return svgImage(svg);
-};
+const processingSteps = ['Detecting Pattern', 'Detecting Colors', 'Extracting Vectors', 'Matching Catalog', 'Complete'];
 
 export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavigate, userEmail, userName, isDarkMode = false }) => {
   const userId = accountService.getUserDocId(userEmail);
@@ -171,12 +111,14 @@ export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavi
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState(0);
   const [processedImage, setProcessedImage] = useState<string | null>(null);
+  const [matchedProducts, setMatchedProducts] = useState<ProductMatch[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [colorFilter, setColorFilter] = useState('All');
   const [patternFilter, setPatternFilter] = useState('All');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
   useEffect(() => {
     const testConnection = async () => {
       try {
@@ -186,9 +128,9 @@ export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavi
         console.error("❌ Could not connect to AI Server", error);
       }
     };
-
     testConnection();
   }, []);
+
   useEffect(() => {
     const loadWardrobe = async () => {
       setIsLoading(true);
@@ -261,34 +203,40 @@ export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavi
 
     try {
       setIsProcessing(true);
+      setProcessingStep(0);
 
-    // scanImage is currently a base64/data URL.
-    // Convert it back into a File so we can send it to FastAPI.
       const response = await fetch(scanImage);
       const blob = await response.blob();
+      const file = new File([blob], `nova-${Date.now()}.jpg`, { type: blob.type || "image/jpeg" });
 
-      const file = new File(
-        [blob],
-        `nova-${Date.now()}.jpg`,
-        { type: blob.type || "image/jpeg" }
-      );
-
-    // Send the real garment image to Python
+      setProcessingStep(1);
       const result = await aiService.uploadGarment(file);
-      console.log("Processed image:", result.processed_image);
-      setProcessedImage(result.processed_image);
-      console.log("Saving processed image to state:", result.processed_image);
-      console.log("NOVA upload result:", result);
+      if (result?.processed_image) {
+        setProcessedImage(result.processed_image);
+      }
 
-      setProcessedImage(result.processed_image);
+      setProcessingStep(2);
+      // Generate vector embedding array from Python server
+      const embedding = await aiService.getEmbedding(file);
 
+      setProcessingStep(3);
+      const scannedAttributes = {
+        category: result?.category ?? result?.attributes?.category,
+        primaryColor: result?.primaryColor ?? result?.attributes?.primaryColor,
+        subcategory: result?.subcategory ?? result?.attributes?.subcategory,
+        pattern: result?.pattern ?? result?.attributes?.pattern,
+        sleeveType: result?.sleeveType ?? result?.attributes?.sleeveType,
+        neckType: result?.neckType ?? result?.attributes?.neckType,
+        fit: result?.fit ?? result?.attributes?.fit,
+        material: result?.material ?? result?.attributes?.material
+      };
+      const matches = await findSimilarProductsByVector(embedding, scannedAttributes, 5);
+      setMatchedProducts(matches);
+
+      setProcessingStep(4);
     } catch (error) {
-      console.error("NOVA garment upload failed:", error);
-
-      alert(
-        "Could not send the garment to the NOVA AI server. Make sure the AI server is running."
-      );
-
+      console.error("NOVA garment analysis failed:", error);
+      alert("Could not process the garment with NOVA AI server. Please verify the AI server is online.");
     } finally {
       setIsProcessing(false);
     }
@@ -486,6 +434,7 @@ export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavi
                     setGeneratedItem(null);
                     setScanImage(getScanSample(category));
                     setProcessingStep(0);
+                    setMatchedProducts([]);
                   }}
                   className="min-h-24 rounded-xl border border-[#25253a] bg-[#171827] p-2 text-center shadow-sm transition-transform active:scale-[0.98]"
                 >
@@ -632,7 +581,7 @@ export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavi
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(168,85,247,.28),transparent_32%),radial-gradient(circle_at_100%_80%,rgba(59,130,246,.18),transparent_35%)]" />
                   <p className="relative z-10 mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-300">Scanned Garment Detail</p>
                   <div className="relative z-10 aspect-[4/3] overflow-hidden rounded-2xl border border-white/10 bg-[#070812]">
-                   <img src={scanImage} alt="Scanned garment detail" className="h-full w-full object-cover"/>
+                    <img src={scanImage} alt="Scanned garment detail" className="h-full w-full object-cover"/>
                     <motion.div animate={{ y: ['-20%', '110%'] }} transition={{ duration: 2.2, repeat: Infinity, ease: 'linear' }} className="absolute left-0 right-0 top-0 h-16 bg-gradient-to-b from-transparent via-[#c084fc]/35 to-transparent" />
                     {[
                       'left-3 top-3 border-l-2 border-t-2',
@@ -664,8 +613,8 @@ export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavi
                   </div>
                   <div className="space-y-2">
                     {processingSteps.map((step, index) => {
-                      const isActive = index === processingStep && (isProcessing || generatedItem);
-                      const isDone = generatedItem ? true : index < processingStep;
+                      const isActive = index === processingStep && (isProcessing || matchedProducts.length > 0);
+                      const isDone = matchedProducts.length > 0 ? true : index < processingStep;
                       return (
                         <div key={step} className="flex items-center gap-3 text-[11px] font-bold">
                           <span className={`flex h-5 w-5 items-center justify-center rounded-full border ${isDone ? 'border-emerald-300 bg-emerald-400/20 text-emerald-200' : isActive ? 'border-[#c084fc] bg-[#a855f7]/25 text-[#f5d0fe]' : 'border-slate-700 text-slate-600'}`}>
@@ -711,25 +660,27 @@ export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavi
                 </div>
               </div>
 
-              {generatedItem && (
+              {matchedProducts.length > 0 && (
                 <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} className="mt-4 rounded-[20px] border border-[#30264c] bg-[#171827]/90 p-3">
-                  <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-[#c084fc]">Detected Attributes</p>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      ['Category', generatedItem.category],
-                      ['Color', generatedItem.colors.join(', ')],
-                      ['Pattern', generatedItem.pattern],
-                      ['Fabric', generatedItem.fabric],
-                      ['Neck', generatedItem.attributes.neckType],
-                      ['Sleeve', generatedItem.attributes.sleeveType]
-                    ].map(([label, value]) => (
-                      <span key={label} className="rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-[11px] font-bold text-slate-100">
-                        <span className="mr-1 text-slate-400">{label}:</span>{value}
-                      </span>
+                  <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-[#c084fc]">
+                    {matchedProducts[0].matchType === 'Exact Match' ? 'Exact Matches' : 'Similar Matches (Vector Search)'}
+                  </p>
+                  <div className="space-y-2">
+                    {matchedProducts.map((match) => (
+                      <div key={match.productId} className="flex items-center justify-between rounded-xl bg-white/[0.05] p-2 text-xs">
+                        <div>
+                          <div className="font-bold text-slate-100">{match.subcategory}</div>
+                          <div className="text-[10px] text-slate-400">{match.primaryColor} • {match.material}</div>
+                        </div>
+                        <span className="rounded-full bg-[#251a3b] px-2 py-0.5 text-[10px] font-black text-[#d8b4fe]">
+                          {match.matchType} • {match.similarityScore}%
+                        </span>
+                      </div>
                     ))}
                   </div>
                 </motion.div>
               )}
+
               <div className="mt-4 flex gap-3">
                 <button onClick={handleAnalyze} disabled={isProcessing} className="flex-1 rounded-xl border border-[#30264c] bg-[#171827] py-3 text-xs font-black text-white shadow-lg disabled:opacity-60">AI Smart Scan</button>
                 <button onClick={saveItem} disabled={!generatedItem} className={`flex-1 rounded-xl py-3 text-xs font-black disabled:opacity-40 ${purpleButton}`}>Save Item</button>
@@ -780,3 +731,5 @@ export const VirtualWardrobeView: React.FC<VirtualWardrobeViewProps> = ({ onNavi
     </div>
   );
 };
+
+export default VirtualWardrobeView;

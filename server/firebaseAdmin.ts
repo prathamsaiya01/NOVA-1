@@ -1,5 +1,5 @@
 import { initializeApp, cert, getApps } from "firebase-admin/app";
-import fs from "fs";
+import { getFirestore } from "firebase-admin/firestore";
 import fs from "fs";
 import path from "path";
 
@@ -9,59 +9,61 @@ let initError: Error | null = null;
 function getServiceAccount() {
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   const base64 = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
-  const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  const filePath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
 
   if (json) {
-    return JSON.parse(json);
+    try {
+      return JSON.parse(json);
+    } catch (e) {
+      console.warn("⚠️ Failed to parse FIREBASE_SERVICE_ACCOUNT_JSON environment variable.");
+    }
   }
 
   if (base64) {
-    const decoded = Buffer.from(base64, "base64").toString("utf8");
-    return JSON.parse(decoded);
+    try {
+      const decoded = Buffer.from(base64, "base64").toString("utf8");
+      return JSON.parse(decoded);
+    } catch (e) {
+      console.warn("⚠️ Failed to parse FIREBASE_SERVICE_ACCOUNT_BASE64 environment variable.");
+    }
   }
 
-  if (path) {
-    const content = fs.readFileSync(path, "utf8");
-    return JSON.parse(content);
-  }
-
-  throw new Error(
-    "FIREBASE_SERVICE_ACCOUNT_JSON is missing. Provide FIREBASE_SERVICE_ACCOUNT_JSON, FIREBASE_SERVICE_ACCOUNT_BASE64 or FIREBASE_SERVICE_ACCOUNT_PATH"
-  );
-
-  // Fallback: allow a path to the service account JSON file
-  const accountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || path.join(__dirname, "serviceAccount.json");
+  // Check explicit or fallback JSON path
+  const accountPath = filePath || path.join(__dirname, "serviceAccount.json");
 
   if (fs.existsSync(accountPath)) {
     try {
       const contents = fs.readFileSync(accountPath, "utf8");
       return JSON.parse(contents);
     } catch (e) {
-      throw new Error("Failed to read/parse service account file at " + accountPath + ": " + (e as Error).message);
+      console.warn("⚠️ Failed to read/parse service account file at " + accountPath);
     }
   }
 
-  throw new Error(
-    `FIREBASE_SERVICE_ACCOUNT_JSON is missing and no service account file found at '${accountPath}'. Provide either the JSON in env or set FIREBASE_SERVICE_ACCOUNT_PATH to a valid file.`
-  );
+  return null;
 }
 
 try {
   if (!getApps().length) {
     const serviceAccount = getServiceAccount();
 
-    initializeApp({
-      credential: cert(serviceAccount),
-      projectId: serviceAccount.project_id,
-    });
-
-    console.log("✅ Firebase Admin initialized");
+    if (serviceAccount) {
+      initializeApp({
+        credential: cert(serviceAccount),
+        projectId: serviceAccount.project_id,
+      });
+      initialized = true;
+      console.log("✅ Firebase Admin initialized successfully");
+    } else {
+      console.warn("⚠️ Running Firebase Admin in local fallback mode (no service account JSON provided).");
+    }
+  } else {
+    initialized = true;
   }
-
-  initialized = true;
 } catch (err) {
   initError = err as Error;
   console.error("❌ Firebase Admin init error:", err);
 }
 
+export const adminDb = initialized && getApps().length ? getFirestore() : null;
 export { initialized, initError };

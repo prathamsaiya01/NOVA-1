@@ -1,4 +1,13 @@
 import { ProductItem } from '../types';
+import { 
+  getFirestore, 
+  collection, 
+  getDocs,
+  query,
+  where,
+  limit
+} from 'firebase/firestore';
+import { app } from '../firebase';
 
 export interface RuntimeProductMetadata {
   productId: string;
@@ -14,6 +23,31 @@ export interface RuntimeProductMetadata {
   material: string;
   confidence: number;
   searchableText: string;
+  imageUrl?: string;
+  name?: string;
+  price?: number;
+}
+
+export interface RuntimeProductVectorMetadata extends RuntimeProductMetadata {
+  embedding?: number[];
+}
+
+export type ProductMatchType = 'Exact Match' | 'Similar Match';
+
+export interface ProductMatch extends RuntimeProductMetadata {
+  matchType: ProductMatchType;
+  similarityScore: number;
+}
+
+export interface ScannedProductAttributes {
+  category?: unknown;
+  primaryColor?: unknown;
+  subcategory?: unknown;
+  pattern?: unknown;
+  sleeveType?: unknown;
+  neckType?: unknown;
+  fit?: unknown;
+  material?: unknown;
 }
 
 const metadataCache = new Map<string, RuntimeProductMetadata>();
@@ -27,6 +61,27 @@ const safeArray = (value: unknown): string[] => {
   if (typeof value === 'string' && value.trim()) return value.split(',').map((item) => item.trim()).filter(Boolean);
   return [];
 };
+
+const safeNumber = (value: unknown, fallback = 0) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+};
+
+const safeProduct = (value: Record<string, unknown>, id: string): ProductItem => ({
+  ...(value as Partial<ProductItem>),
+  id,
+  name: String(value.name || 'Unnamed product'),
+  category: String(value.category || value.subcategory || 'Unknown'),
+  price: safeNumber(value.price),
+  rating: safeNumber(value.rating),
+  reviewsCount: safeNumber(value.reviewsCount),
+  imageUrl: String(value.imageUrl || value.mainImage || safeArray(value.images)[0] || ''),
+  colors: safeArray(value.colors),
+  sizes: safeArray(value.sizes),
+  details: safeArray(value.details),
+  tags: safeArray(value.tags),
+  inStock: Boolean(value.inStock)
+});
 
 const imageFilename = (value: unknown) => {
   const url = String(value || '');
@@ -53,8 +108,8 @@ const buildSearchableText = (product: ProductItem) => {
     product.pattern,
     product.sleeveType,
     product.neckType,
-    ...(product.details || []),
-    ...(product.tags || []),
+    ...safeArray(product.details),
+    ...safeArray(product.tags),
     ...safeArray(loose.searchKeywords),
     ...safeArray(loose.keywords),
     loose.searchableText,
@@ -92,7 +147,7 @@ const colorAliases = new Map<string, string>([
 ]);
 
 const inferColors = (product: ProductItem, text: string) => {
-  const explicitColors = (product.colors || []).filter((color) => color && normalizeText(color) !== 'standard');
+  const explicitColors = safeArray(product.colors).filter((color) => normalizeText(color) !== 'standard');
   const matches = colorNames.filter((color) => text.includes(normalizeText(color)));
   colorAliases.forEach((canonical, alias) => {
     if (text.includes(alias) && !matches.includes(canonical)) matches.push(canonical);
@@ -198,7 +253,7 @@ const inferSleeve = (product: ProductItem, text: string, subcategory: string) =>
   if (text.includes('3 4 sleeve') || text.includes('three quarter')) return { value: '3/4 Sleeve', confident: true };
   if (text.includes('half sleeve') || text.includes('short sleeve')) return { value: 'Half Sleeve', confident: true };
   if (text.includes('full sleeve') || text.includes('long sleeve')) return { value: 'Full Sleeve', confident: true };
-  if (['Hoodie', 'Oversized Hoodie', 'Sweatshirt', 'Sweater', 'Jacket', 'Blazer', 'Kurta', 'Kurti'].includes(subcategory)) return { value: 'Full Sleeve', confident: false };
+  if (['Hoodie', 'Oversized Hoodie', 'Sweatshirt', 'Sweater', 'Jacket', 'Blazer', 'Kurta', 'Kurti'].includes(subcategory)) return { value: 'Full Sleeve', false: true };
   return { value: 'Regular', confident: false };
 };
 
@@ -262,6 +317,9 @@ export const getRuntimeProductMetadata = (product: ProductItem): RuntimeProductM
 
   const metadata: RuntimeProductMetadata = {
     productId: product.id,
+    name: product.name,
+    imageUrl: product.imageUrl,
+    price: product.price,
     category,
     subcategory,
     gender: gender.value,
@@ -286,4 +344,131 @@ export const primeRuntimeProductMetadata = (products: ProductItem[]) => {
 
 export const clearRuntimeProductMetadataCache = () => {
   metadataCache.clear();
+};
+
+function cosineSimilarity(vecA: unknown, vecB: unknown): number {
+  if (!Array.isArray(vecA) || !Array.isArray(vecB) || vecA.length !== vecB.length || !vecA.length) return 0;
+  if (!vecA.every((value) => Number.isFinite(value)) || !vecB.every((value) => Number.isFinite(value))) return 0;
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < vecA.length; i++) {
+    const valueA = Number(vecA[i]);
+    const valueB = Number(vecB[i]);
+    dotProduct += valueA * valueB;
+    normA += valueA * valueA;
+    normB += valueB * valueB;
+  }
+  return normA && normB ? dotProduct / (Math.sqrt(normA) * Math.sqrt(normB)) : 0;
+}
+
+/**
+ * Dynamic pairing logic: Top Wear -> Bottom Wear (and vice versa)
+ */
+export async function getPairedItem(scannedCategory: string, primaryColor: string) {
+  let targetCategory = 'Bottom Wear';
+  
+  const categoryLower = (scannedCategory || '').toLowerCase();
+  if (
+    categoryLower.includes('bottom') || 
+    categoryLower.includes('jeans') || 
+    categoryLower.includes('pants') || 
+    categoryLower.includes('skirt')
+  ) {
+    targetCategory = 'Top Wear';
+  } else if (
+    categoryLower.includes('top') || 
+    categoryLower.includes('shirt') || 
+    categoryLower.includes('kurti') ||
+    categoryLower.includes('crop')
+  ) {
+    targetCategory = 'Bottom Wear';
+  }
+
+  try {
+    const db = getFirestore(app);
+    const productsRef = collection(db, 'products');
+    const q = query(
+      productsRef,
+      where('category', '==', targetCategory),
+      limit(1)
+    );
+
+    const querySnapshot = await getDocs(q);
+    
+    if (!querySnapshot.empty) {
+      const doc = querySnapshot.docs[0];
+      const data = doc.data() as Record<string, unknown>;
+      return safeProduct(data, doc.id);
+    }
+  } catch (error) {
+    console.warn('⚠️ Error fetching paired item from Firestore:', error);
+  }
+
+  return {
+    id: 'default-jeans',
+    name: 'Blue Denim Jeans',
+    category: 'Bottom Wear',
+    price: 1299,
+    imageUrl: 'https://images.unsplash.com/photo-1541099649105-f69ad21f3246?w=500'
+  };
+}
+
+/**
+ * Executes visual comparison with exact match fallback logic.
+ */
+export const findSimilarProductsByVector = async (
+  queryEmbedding: unknown,
+  scannedAttributesOrLimit: ScannedProductAttributes | number = {},
+  limitCount: number = 5
+): Promise<ProductMatch[]> => {
+  try {
+    const scannedAttributes = typeof scannedAttributesOrLimit === 'number' ? {} : scannedAttributesOrLimit;
+    const resultLimit = typeof scannedAttributesOrLimit === 'number' ? scannedAttributesOrLimit : limitCount;
+    const db = getFirestore(app);
+    const productsRef = collection(db, 'products');
+    const snapshot = await getDocs(productsRef);
+
+    const products = snapshot.docs.map((productDoc) => {
+      const data = productDoc.data() as Record<string, unknown>;
+      const product = safeProduct(data, productDoc.id);
+      return { data, metadata: getRuntimeProductMetadata(product) };
+    });
+
+    const requestedCategory = normalizeText(scannedAttributes.category);
+    const requestedColor = normalizeText(scannedAttributes.primaryColor);
+    
+    const exactProducts = requestedCategory && requestedColor
+      ? products.filter(({ metadata }) => (
+        normalizeText(metadata.category) === requestedCategory &&
+        normalizeText(metadata.primaryColor) === requestedColor
+      ))
+      : [];
+
+    if (exactProducts.length > 0) {
+      return exactProducts.slice(0, resultLimit).map(({ metadata }) => ({
+        ...metadata,
+        matchType: 'Exact Match',
+        similarityScore: 100
+      }));
+    }
+
+    const rankedProducts = products
+      .map(({ data, metadata }) => ({
+        product: metadata,
+        score: cosineSimilarity(queryEmbedding, data.embedding)
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, resultLimit)
+      .map((item) => ({
+        ...item.product,
+        matchType: 'Similar Match' as const,
+        similarityScore: Math.max(0, Math.min(100, Math.round(item.score * 100)))
+      }));
+
+    return rankedProducts;
+  } catch (error) {
+    console.error('Error fetching visually similar products from Firestore:', error);
+    throw error;
+  }
 };

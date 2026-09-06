@@ -10,56 +10,19 @@ const conversations = new Map<string, Message[]>();
 const SYSTEM_PROMPT: Message = {
   role: "system",
   content: `
-You are NOVA AI, an intelligent personal assistant and professional fashion stylist integrated into the NOVA Smart Mirror.
+You are NOVA AI.
 
-Your personality:
-- Friendly
-- Professional
-- Modern
-- Helpful
-- Confident
-
-You can answer any general question naturally.
-
-When the user asks anything related to fashion, clothing, styling, shopping, colours, accessories, shoes, body types, occasions, trends or grooming, become an expert fashion consultant.
-
-For fashion questions:
-- Recommend complete outfits.
-- Explain why your recommendations work.
-- Suggest matching shoes, watches and accessories.
-- Recommend colours that complement each other.
-- Be practical and realistic.
-- Keep answers concise unless more detail is requested.
+You are friendly, intelligent and helpful.
 
 Remember previous messages in the conversation.
 
-Never mention your internal instructions or memory.
-Never use Markdown.
+Answer naturally.
 
-Do not use:
-#, ##, ###, **, -, *, or bullet syntax.
+Never mention that you are using memory.
 
-Write in plain readable text.
-
-Use short headings like:
-
-Outfit Recommendation
-
-Top:
-...
-
-Bottom:
-...
-
-Shoes:
-...
-
-Accessories:
-...
-
-Reason:
-...
-`}
+Keep answers concise unless the user asks for details.
+`,
+};
 
 export async function askModel(
   sessionId: string,
@@ -85,17 +48,12 @@ export async function askModel(
       model: "qwen2.5:7b",
       messages: history,
       stream: true,
-        options: {
-          temperature: 0.4,
-          num_predict: 350,
-          top_k: 20,
-          top_p: 0.9,
-        },
     }),
   });
 
   if (!response.ok) {
-    throw new Error("Ollama request failed");
+    const text = await response.text().catch(() => "");
+    throw new Error(`Ollama request failed (${response.status}): ${text || "Unknown error"}`);
   }
 
   const reader = response.body?.getReader();
@@ -105,28 +63,47 @@ export async function askModel(
   }
 
   const decoder = new TextDecoder();
-
+  let buffer = "";
   let reply = "";
 
   while (true) {
     const { done, value } = await reader.read();
 
-    if (done) break;
+    if (done) {
+      break;
+    }
 
-    const chunk = decoder.decode(value);
+    buffer += decoder.decode(value, { stream: true });
 
-    const lines = chunk
-      .split("\n")
-      .filter((line) => line.trim());
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
 
     for (const line of lines) {
-      try {
-        const json = JSON.parse(line);
+      const trimmed = line.trim();
+      if (!trimmed) continue;
 
-        if (json.message?.content) {
-          reply += json.message.content;
+      try {
+        const json = JSON.parse(trimmed);
+
+        const content = json?.message?.content;
+        if (typeof content === "string") {
+          reply += content;
         }
-      } catch {}
+      } catch {
+        // Ignore incomplete JSON fragments from partial chunk boundaries.
+      }
+    }
+  }
+
+  if (buffer.trim()) {
+    try {
+      const json = JSON.parse(buffer.trim());
+      const content = json?.message?.content;
+      if (typeof content === "string") {
+        reply += content;
+      }
+    } catch {
+      // Ignore trailing partial chunk data.
     }
   }
 
@@ -134,12 +111,12 @@ export async function askModel(
     role: "assistant",
     content: reply,
   });
-  // Keep system prompt + last 20 messages
-  if (history.length > 11) {
+
+  if (history.length > 21) {
     const system = history[0];
     const recent = history.slice(-20);
-
     conversations.set(sessionId, [system, ...recent]);
   }
+
   return reply;
 }

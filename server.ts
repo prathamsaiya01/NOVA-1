@@ -6,8 +6,14 @@ dotenv.config();
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import cors from 'cors';
 
 const app = express();
+app.use(cors({
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Accept', 'Authorization']
+}));
 app.use(express.json({ limit: '6mb' }));
 
 const PORT = Number(process.env.PORT || 3000);
