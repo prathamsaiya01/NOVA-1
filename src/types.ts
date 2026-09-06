@@ -236,6 +236,8 @@ export interface WardrobeDetectedAttributes {
   style: string;
   sleeveType: string;
   neckType: string;
+  rise?: string;
+  length?: string;
 }
 
 export interface WardrobeItem {
@@ -250,6 +252,9 @@ export interface WardrobeItem {
   fabric: string;
   tags: string[];
   dateAdded: string;
+  /** Kept locally so closet insights can suggest neglected pieces. */
+  lastWorn?: string;
+  timesWorn?: number;
   attributes: WardrobeDetectedAttributes;
 }
 

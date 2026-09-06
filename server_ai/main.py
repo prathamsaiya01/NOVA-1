@@ -1,11 +1,10 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 import shutil
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from ai.remove_bg import remove_background
-from ai.texture import extract_texture
+from ai.remove_bg import remove_background, extract_garment
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
@@ -20,6 +19,8 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "http://localhost:5173",
         "http://127.0.0.1:5173"
     ],
@@ -44,7 +45,7 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 @app.post("/upload")
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(file: UploadFile = File(...), category: str = Form("")):
     file_path = UPLOAD_DIR / file.filename
 
     with open(file_path, "wb") as buffer:
@@ -52,15 +53,12 @@ async def upload_image(file: UploadFile = File(...)):
         
     output_path = Path("output") / f"{Path(file.filename).stem}_no_bg.png"
 
-    remove_background(file_path, output_path)
-
-    texture_path = Path("output") / f"{Path(file.filename).stem}_texture.jpg"
-
-    extract_texture(file_path, texture_path)
+    extract_garment(file_path, output_path, category)
 
     return {
         "success": True,
         "filename": file.filename,
         "path": str(file_path),
-        "processed_image": f"http://127.0.0.1:8000/output/{output_path.name}"
+        "processed_image": f"http://127.0.0.1:8000/output/{output_path.name}",
+        "scan_note": "Garment-only crop generated. Review details before saving."
     }

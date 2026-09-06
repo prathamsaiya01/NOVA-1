@@ -3,6 +3,16 @@
 const AI_SERVER = "http://127.0.0.1:8000";
 
 class AIService {
+  private async fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 30000) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }
+
   // Check whether Python AI server is running
   async checkConnection() {
     const response = await fetch(`${AI_SERVER}/health`);
@@ -15,11 +25,12 @@ class AIService {
   }
 
   // Send garment image to Python server
-  async uploadGarment(file: File) {
+  async uploadGarment(file: File, category = "") {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("category", category);
 
-    const response = await fetch(`${AI_SERVER}/upload`, {
+    const response = await this.fetchWithTimeout(`${AI_SERVER}/upload`, {
       method: "POST",
       body: formData,
     });

@@ -1076,15 +1076,32 @@ export default function App() {
     setScreen(to);
   };
 
-  // Initialize with one default item for convenient out-of-the-box checkout previews!
-  const [cartItems, setCartItems] = useState<CartItem[]>([
-    {
-      product: productsData['lavender-hoodie'] || products['lavender-hoodie'],
-      quantity: 1,
-      color: 'Lavender',
-      size: 'M'
+  const cartStorageKey = `nova_cart_${activeUid || 'guest'}`;
+  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
+    try {
+      const stored = localStorage.getItem(`nova_cart_${activeUid || 'guest'}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
     }
-  ]);
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(cartStorageKey, JSON.stringify(cartItems));
+    } catch {
+      // Keep the in-memory cart usable when browser storage is unavailable.
+    }
+  }, [cartItems, cartStorageKey]);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(cartStorageKey);
+      setCartItems(stored ? JSON.parse(stored) : []);
+    } catch {
+      setCartItems([]);
+    }
+  }, [cartStorageKey]);
 
   const [selectedColor, setSelectedColor] = useState<string>('Lavender');
   const [selectedGarment, setSelectedGarment] = useState<string>('Lavender');
